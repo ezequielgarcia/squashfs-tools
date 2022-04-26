@@ -96,6 +96,7 @@ struct pathname *extract = NULL, *exclude = NULL;
 int writer_fd = 1;
 int pseudo_file = FALSE;
 char *pseudo_name;
+int checkonly = FALSE;
 
 int lookup_type[] = {
 	0,
@@ -1024,8 +1025,12 @@ int write_file(struct inode *inode, char *pathname)
 
 	TRACE("write_file: regular file, blocks %d\n", inode->blocks);
 
-	file_fd = open_wait(pathname, O_CREAT | O_WRONLY |
-		(force ? O_TRUNC : 0), (mode_t) inode->mode & 0777);
+	if (checkonly) {
+		file_fd = open("/dev/null", O_WRONLY);
+	} else {
+		file_fd = open_wait(pathname, O_CREAT | O_WRONLY |
+			(force ? O_TRUNC : 0), (mode_t) inode->mode & 0777);
+	}
 	if(file_fd == -1) {
 		EXIT_UNSQUASH_IGNORE("write_file: failed to create file %s,"
 			" because %s\n", pathname, strerror(errno));
@@ -1166,7 +1171,7 @@ int create_inode(char *pathname, struct inode *i)
 		if(force)
 			unlink(pathname);
 
-		if(link(link_path, pathname) == -1) {
+		if(!checkonly && link(link_path, pathname) == -1) {
 			EXIT_UNSQUASH_IGNORE("create_inode: failed to create"
 				" hardlink, because %s\n", strerror(errno));
 			return FALSE;
@@ -1198,6 +1203,8 @@ int create_inode(char *pathname, struct inode *i)
 			TRACE("create_inode: symlink, symlink_size %lld\n",
 				i->data);
 
+			if(checkonly)
+				break;
 			if(force)
 				unlink(pathname);
 
@@ -1249,6 +1256,8 @@ int create_inode(char *pathname, struct inode *i)
 				chrdev = 1;
 
 			TRACE("create_inode: dev, rdev 0x%llx\n", i->data);
+			if(checkonly)
+				break;
 			if(root_process) {
 				if(force)
 					unlink(pathname);
@@ -1287,6 +1296,8 @@ int create_inode(char *pathname, struct inode *i)
 		case SQUASHFS_LFIFO_TYPE:
 			TRACE("create_inode: fifo\n");
 
+			if(checkonly)
+				break;
 			if(force)
 				unlink(pathname);
 
@@ -1308,6 +1319,8 @@ int create_inode(char *pathname, struct inode *i)
 		case SQUASHFS_LSOCKET_TYPE:
 			TRACE("create_inode: socket\n");
 
+			if(checkonly)
+				break;
 			res = mknod(pathname, S_IFSOCK, 0);
 			if (res == -1) {
 				ERROR("create_inode: failed to create socket "
@@ -2097,7 +2110,7 @@ int dir_scan(char *parent_name, unsigned int start_block, unsigned int offset,
 	if((lsonly || info) && (!concise || dir->dir_count ==0))
 		print_filename(parent_name, i);
 
-	if(!lsonly) {
+	if(!lsonly && !checkonly) {
 		/*
 		 * Make directory with default User rwx permissions rather than
 		 * the permissions from the filesystem, as these may not have
@@ -2636,7 +2649,8 @@ void *inflator(void *arg)
  		 * occurred, clear pending flag, set error appropriately and
  		 * wake up any threads waiting on this block
  		 */ 
-		cache_block_ready(entry, res == -1);
+		if (!checkonly)
+			cache_block_ready(entry, res == -1);
 	}
 }
 
@@ -3874,6 +3888,7 @@ static void print_options(FILE *stream, char *name)
 	fprintf(stream, "\t\t\t\trather than use the default shell ");
 	fprintf(stream, "wildcard\n\t\t\t\texpansion (globbing)\n");
 	fprintf(stream, "\t-L\t\t\tsynonym for -follow-symlinks\n");
+	fprintf(stream, "\t-t[est]\t\t\tdon't write anything (ie. perform a fsck)\n");
 	fprintf(stream, "\t-h[elp]\t\t\toutput this options text to stdout\n");
 	fprintf(stream, "\nDecompressors available:\n");
 	display_compressors(stream, "", "");
@@ -4254,6 +4269,9 @@ int parse_options(int argc, char *argv[])
 							argv[0], argv[i - 1]);
 				exit(1);
 			}
+		} else if(strcmp(argv[i], "-test") == 0 ||
+			strcmp(argv[i], "-t") == 0) {
+			checkonly = TRUE;
 		} else {
 			print_options(stderr, argv[0]);
 			exit(1);
@@ -4435,7 +4453,7 @@ int main(int argc, char *argv[])
 		inode_number = 1;
 		free_lookup_table();
 
-		if(!quiet)  {
+		if(!quiet && !checkonly)  {
 			printf("Parallel unsquashfs: Using %d processor%s\n",
 				processors, processors == 1 ? "" : "s");
 
@@ -4453,9 +4471,13 @@ int main(int argc, char *argv[])
 
 	if(!lsonly) {
 		queue_put(to_writer, NULL);
-		res = (long) queue_get(from_writer);
-		if(res == TRUE && set_exit_code)
-			exit_code = 2;
+
+		if (!checkonly) {
+			/* Wait for the writer thread to finish */
+			res = (long) queue_get(from_writer);
+			if(res == TRUE && set_exit_code)
+				exit_code = 2;
+		}
 	}
 
 	disable_progress_bar();
