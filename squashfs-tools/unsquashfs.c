@@ -2626,7 +2626,7 @@ void *inflator(void *arg)
 			&error);
 
 		if(res == -1)
-			ERROR("%s uncompress failed with error code %d\n",
+			EXIT_UNSQUASH("%s uncompress failed with error code %d, data probably corrupt\n",
 				comp->name, error);
 		else
 			memcpy(entry->data, tmp, res);
