@@ -529,6 +529,13 @@ char *modestr(char *str, int mode)
 
 
 #define TOTALCHARS  25
+#ifdef STATIC_BUILD
+void print_filename(char *pathname, struct inode *inode)
+{
+	printf("%s\n", pathname);
+	return;
+}
+#else
 void print_filename(char *pathname, struct inode *inode)
 {
 	char str[11], dummy[12], dummy2[12]; /* overflow safe */
@@ -604,6 +611,7 @@ void print_filename(char *pathname, struct inode *inode)
 		printf(" -> %s", inode->symlink);
 	printf("\n");
 }
+#endif
 	
 
 int read_fs_bytes(int fd, long long byte, long long bytes, void *buff)

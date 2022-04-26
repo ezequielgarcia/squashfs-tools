@@ -180,7 +180,13 @@ CFLAGS += $(EXTRA_CFLAGS) $(INCLUDEDIR) -D_FILE_OFFSET_BITS=64 \
 	-D_LARGEFILE_SOURCE -D_GNU_SOURCE -DCOMP_DEFAULT=\"$(COMP_DEFAULT)\" \
 	-Wall
 
-LIBS = -lpthread -lm
+LIBS =
+ifeq ($(STATIC),1)
+CFLAGS += -DSTATIC_BUILD
+LIBS = -static
+endif
+
+LIBS += -lpthread -lm
 ifeq ($(GZIP_SUPPORT),1)
 CFLAGS += -DGZIP_SUPPORT
 MKSQUASHFS_OBJS += gzip_wrapper.o
